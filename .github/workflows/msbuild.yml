@@ -2,9 +2,9 @@ name: MSBuild
 
 on:
   push:
-    branches: [ "main","heads/test01" ]
+    branches: [ "heads/test01" ]
   pull_request:
-    branches: [ "main","heads/test01" ]
+    branches: [ "heads/test01" ]
 
 env:
   SOLUTION_FILE_PATH: .
