@@ -23,6 +23,7 @@ ApplicationWindow {
         Component.onCompleted: {
             NativeApi.onRtpStream.connect((sdpFile)=>{
                 playingFile = sdpFile; 
+
             });
             onPlayStopped.connect(()=>{
                 stop();
