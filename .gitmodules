@@ -1,6 +1,8 @@
 [submodule "3rd/devourer"]
 	path = 3rd/devourer
 	url = https://github.com/OpenIPC/devourer.git
+	branch = d8af8c518cb6dd8c0ec40049bd31a167577b3a6e
 [submodule "3rd/rtl8812au-monitor-pcap"]
 	path = 3rd/rtl8812au-monitor-pcap
 	url = https://github.com/TalusL/rtl8812au-monitor-pcap.git
+	branch = 5581fadc7c3fc83b18f58a55ca924644cd890d28
