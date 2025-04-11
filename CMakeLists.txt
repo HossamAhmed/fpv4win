@@ -8,6 +8,18 @@ set(CMAKE_AUTOUIC ON)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
+# Find OpenCV
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
+
+# ONNX Runtime setup (adjust paths according to your installation)
+set(ONNXRUNTIME_ROOT "C:/Path/To/onnxruntime")
+set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_ROOT}/include")
+set(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_ROOT}/lib")
+
+include_directories(${ONNXRUNTIME_INCLUDE_DIR})
+link_directories(${ONNXRUNTIME_LIB_DIR})
+
 find_package(PkgConfig REQUIRED)
 
 find_package(FFmpeg REQUIRED)
@@ -34,14 +46,17 @@ file(GLOB_RECURSE SRC_LIST
 )
 list(FILTER SRC_LIST EXCLUDE REGEX ".*/3rd.*/src/main.cpp")
 
-include_directories(src 3rd/rtl8812au-monitor-pcap/src 3rd/rtl8812au-monitor-pcap/hal)
+include_directories(src 3rd/rtl8812au-monitor-pcap/src 3rd/rtl8812au-monitor-pcap/hal 3rd/onnxruntime/include)
 add_executable(${PROJECT_NAME} ${SRC_LIST} qml.qrc)
 
 target_link_libraries(${PROJECT_NAME}
         Qt5::Quick ${FFMPEG_LIBRARIES}
         ${SDL2_LIBRARIES}
         PkgConfig::LIBUSB
-        unofficial-sodium::sodium)
+        unofficial-sodium::sodium
+        ${OpenCV_LIBS}
+        D:/forfun/drone/OpenIPC/code/fpv4win2/3rd/onnxruntime/lib/onnxruntime.lib
+        )
 
 if (WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(DEBUG_SUFFIX)
