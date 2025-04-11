@@ -42,7 +42,8 @@
 
 include/divisible/*
 
-
+3rd
+vcpkg
 ## Local
 
 .idea/*.xml
