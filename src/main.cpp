@@ -3,6 +3,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <player/QQuickRealTimePlayer.h>
+#include <detection/YoloDetection.h>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -42,6 +43,7 @@ int main(int argc, char *argv[]) {
     QQmlApplicationEngine engine;
 
     qmlRegisterType<QQuickRealTimePlayer>("realTimePlayer", 1, 0, "QQuickRealTimePlayer");
+    qmlRegisterType<YoloDetection>("Detection", 1, 0, "YoloDetection");
 
     auto &qmlNativeApi = QmlNativeAPI::Instance();
     engine.rootContext()->setContextProperty("NativeApi", &qmlNativeApi);
