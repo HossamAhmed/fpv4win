@@ -5,211 +5,230 @@
 #include <vector>
 #include <algorithm>
 #include <float.h>
+#include <fstream>
+#include <chrono>
+
+
+// Constants
+const std::vector<cv::Scalar> colors = { cv::Scalar(255, 255, 0), cv::Scalar(0, 255, 0),
+    cv::Scalar(0, 255, 255), cv::Scalar(255, 0, 0) };
+
+const float SCORE_THRESHOLD = 0.5;
+const float NMS_THRESHOLD = 0.5;
+const cv::Size2f MODEL_SHAPE(640, 640);
+std::vector<std::string> class_list;
+
+Ort::Env& get_ort_env() {
+    qDebug() << "Singleton for ONNX Runtime environment...";
+    try {
+        static Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "YOLOv8");
+        return env;
+    } catch (const Ort::Exception& e) {
+        qDebug() << "ONNX Runtime error: " << e.what();
+    } catch (const std::exception& e) {
+        qDebug() << "Error: " << e.what();
+    }
+
+    // FATAL fallback — should never be reached, but prevents undefined behavior
+    throw std::runtime_error("Failed to initialize ONNX Runtime environment.");
+}
+
+// Load class names from file
+std::vector<std::string> load_class_list() {
+std::vector<std::string> class_list;
+std::ifstream ifs("coco-classes.txt");
+if (!ifs.is_open()) {
+throw std::runtime_error("Failed to open class list file");
+}
+
+std::string line;
+while (getline(ifs, line)) {
+class_list.push_back(line);
+}
+return class_list;
+}
+
+// Create ONNX Runtime session with proper CUDA support
+Ort::Session create_onnx_session(const wchar_t* model_path, bool use_cuda) {
+Ort::SessionOptions session_options;
+session_options.SetIntraOpNumThreads(1);
+session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+if (use_cuda) {
+// Use the correct CUDA provider API
+OrtCUDAProviderOptions cuda_options;
+cuda_options.device_id = 0;
+session_options.AppendExecutionProvider_CUDA(cuda_options);
+}
+
+return Ort::Session(get_ort_env(), model_path, session_options);
+}
+
+// Main detection function
+void detect(cv::Mat& image, Ort::Session& session) {
+// Preprocess image
+cv::Mat blob;
+cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, MODEL_SHAPE, cv::Scalar(), true, false);
+
+// Create input tensor
+std::array<int64_t, 4> input_shape = { 1, 3, MODEL_SHAPE.height, MODEL_SHAPE.width };
+Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
+OrtAllocatorType::OrtArenaAllocator,
+OrtMemType::OrtMemTypeDefault);
+
+Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+memory_info,
+blob.ptr<float>(),
+blob.total(),
+input_shape.data(),
+input_shape.size());
+
+// Run inference
+const char* input_names[] = { "images" };
+const char* output_names[] = { "output0" };
+
+auto output_tensors = session.Run(
+Ort::RunOptions{ nullptr },
+input_names,
+&input_tensor,
+1,
+output_names,
+1);
+
+// Process outputs
+float* raw_data = output_tensors[0].GetTensorMutableData<float>();
+auto output_shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();  // [1, 85, N]
+
+int dimensions = static_cast<int>(output_shape[1]);  // 85
+int rows = static_cast<int>(output_shape[2]);        // N
+
+// Transpose manually from [1, 85, N] to [N, 85]
+std::vector<std::vector<float>> transposed(rows, std::vector<float>(dimensions));
+for (int i = 0; i < dimensions; ++i) {
+for (int j = 0; j < rows; ++j) {
+transposed[j][i] = raw_data[i * rows + j];
+}
+}
+
+std::vector<int> class_ids;
+std::vector<float> confidences;
+std::vector<cv::Rect> boxes;
+
+for (int i = 0; i < rows; ++i) {
+float* data = transposed[i].data();
+float* classes_scores = data + 4;
+
+cv::Mat scores(1, class_list.size(), CV_32FC1, classes_scores);
+cv::Point class_id;
+double max_class_score;
+minMaxLoc(scores, 0, &max_class_score, 0, &class_id);
+
+if (max_class_score > SCORE_THRESHOLD) {
+confidences.push_back(max_class_score);
+class_ids.push_back(class_id.x);
+
+float x = data[0];
+float y = data[1];
+float w = data[2];
+float h = data[3];
+
+int left = static_cast<int>(x * image.cols - w * image.cols / 2);
+int top = static_cast<int>(y * image.rows - h * image.rows / 2);
+int width = static_cast<int>(w * image.cols);
+int height = static_cast<int>(h * image.rows);
+
+boxes.push_back(cv::Rect(left, top, width, height));
+}
+}
+
+// Apply NMS
+std::vector<int> nms_result;
+cv::dnn::NMSBoxes(boxes, confidences, SCORE_THRESHOLD, NMS_THRESHOLD, nms_result);
+
+// Draw results
+for (unsigned long i = 0; i < nms_result.size(); ++i) {
+int idx = nms_result[i];
+cv::rectangle(image, boxes[idx], cv::Scalar(0, 255, 255), 2);
+cv::putText(image, std::to_string(int(confidences[idx] * 100)) + "% " + class_list[class_ids[idx]],
+cv::Point(boxes[idx].x, boxes[idx].y), 1, 3, cv::Scalar(0, 255, 255), 2);
+}
+}
+
 
 YoloDetection::YoloDetection(QObject *parent)
     : QObject{parent}
 {}
 
-const std::vector<std::string> class_names = {
-    "person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train",
-    "truck", "boat", "traffic light", "fire hydrant", "stop sign",
-    "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep",
-    "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella",
-    "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard",
-    "sports ball", "kite", "baseball bat", "baseball glove", "skateboard",
-    "surfboard", "tennis racket", "bottle", "wine glass", "cup", "fork",
-    "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
-    "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
-    "sofa", "pottedplant", "bed", "diningtable", "toilet", "tvmonitor",
-    "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave",
-    "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
-    "scissors", "teddy bear", "hair drier", "toothbrush"
-};
-
-struct Detection {
-    cv::Rect box;
-    float conf;
-    int class_id;
-};
-
-cv::Mat letterbox_image(const cv::Mat& src, int target_width, int target_height, 
-                       float& scale, int& pad_left, int& pad_top) {
-    int width = src.cols;
-    int height = src.rows;
-
-    scale = std::min(static_cast<float>(target_width)/width, 
-                    static_cast<float>(target_height)/height);
-    int new_width = width * scale;
-    int new_height = height * scale;
-
-    cv::Mat resized;
-    cv::resize(src, resized, cv::Size(new_width, new_height));
-
-    pad_left = (target_width - new_width) / 2;
-    pad_top = (target_height - new_height) / 2;
-
-    cv::Mat padded(target_height, target_width, CV_8UC3, cv::Scalar(114, 114, 114));
-    resized.copyTo(padded(cv::Rect(pad_left, pad_top, new_width, new_height)));
-
-    return padded;
-}
-
-float calculateIOU(const cv::Rect& rect1, const cv::Rect& rect2) {
-    cv::Rect intersection = rect1 & rect2;
-    float intersectionArea = intersection.area();
-    float unionArea = rect1.area() + rect2.area() - intersectionArea;
-    return intersectionArea / unionArea;
-}
-
-std::vector<Detection> postprocess(
-    const cv::Mat& input_image,
-    const std::vector<Ort::Value>& output_tensors,
-    float scale,
-    int pad_left,
-    int pad_top,
-    float conf_threshold = 0.25,
-    float iou_threshold = 0.45
-) {
-    std::vector<Detection> detections;
-
-    auto* data = output_tensors[0].GetTensorData<float>();
-    std::vector<int64_t> output_shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
-    const int num_classes = 80;
-    const int num_anchors = output_shape[2];
-
-    for (int i = 0; i < num_anchors; ++i) {
-        float cx = data[i];
-        float cy = data[num_anchors + i];
-        float w = data[2 * num_anchors + i];
-        float h = data[3 * num_anchors + i];
-
-        int class_id = -1;
-        float max_score = -FLT_MAX;
-        for (int c = 0; c < num_classes; ++c) {
-            float score = data[(4 + c) * num_anchors + i];
-            if (score > max_score) {
-                max_score = score;
-                class_id = c;
-            }
-        }
-
-        if (max_score >= conf_threshold && class_id != -1) {
-            float x1 = (cx - w/2 - pad_left) / scale;
-            float y1 = (cy - h/2 - pad_top) / scale;
-            float x2 = (cx + w/2 - pad_left) / scale;
-            float y2 = (cy + h/2 - pad_top) / scale;
-
-            x1 = std::max(0.0f, std::min(x1, static_cast<float>(input_image.cols)));
-            y1 = std::max(0.0f, std::min(y1, static_cast<float>(input_image.rows)));
-            x2 = std::max(0.0f, std::min(x2, static_cast<float>(input_image.cols)));
-            y2 = std::max(0.0f, std::min(y2, static_cast<float>(input_image.rows)));
-
-            detections.emplace_back(
-                cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2)),
-                max_score,
-                class_id
-            );
-        }
-    }
-
-    std::sort(detections.begin(), detections.end(), [](const Detection& a, const Detection& b) {
-        return a.conf > b.conf;
-    });
-
-    std::vector<bool> keep(detections.size(), true);
-    for (size_t i = 0; i < detections.size(); ++i) {
-        if (!keep[i]) continue;
-        for (size_t j = i + 1; j < detections.size(); ++j) {
-            if (!keep[j]) continue;
-            float iou = calculateIOU(detections[i].box, detections[j].box);
-            if (iou >= iou_threshold) {
-                keep[j] = false;
-            }
-        }
-    }
-
-    std::vector<Detection> final_detections;
-    for (size_t i = 0; i < detections.size(); ++i) {
-        if (keep[i]) final_detections.push_back(detections[i]);
-    }
-
-    return final_detections;
-}
 
 void YoloDetection::startDetection()
 {
     try {
         qDebug() << "Initializing YOLO detection...";
+        auto& env = get_ort_env();
+        qDebug() << "ONNX Runtime initialized" ;
 
-        Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "YOLOv8");
-        Ort::SessionOptions session_options;
-        session_options.SetIntraOpNumThreads(1);
-        session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        qDebug() << "load_class_list" ;
 
-        qDebug() << "Loading ONNX model...";
-        Ort::Session session(env, L"yolov8n.onnx", session_options);
+        class_list = load_class_list();
 
-        qDebug() << "Processing image...";
-        cv::Mat image = cv::imread("test.jpg");
-        if(image.empty()) {
-            qWarning() << "Failed to load image!";
-            return;
+        cv::VideoCapture capture(1); // Use default camera
+        if (!capture.isOpened()) {
+            throw std::runtime_error("Failed to open video capture");
+        }
+        
+
+        bool use_cuda = true; // Set to true for GPU acceleration
+        Ort::Session session = create_onnx_session(L"yolov8n.onnx", use_cuda);
+        qDebug() << "Model loaded successfully" ;
+
+        
+        cv::Mat image = cv::imread("input.jpg");
+        if (image.empty()) {
+            qDebug() << "Failed to load image!" ;
+            return ;
         }
 
-        float scale;
-        int pad_left, pad_top;
-        cv::Mat processed_image = letterbox_image(image, 640, 640, scale, pad_left, pad_top);
-
-        cv::Mat blob;
-        cv::dnn::blobFromImage(processed_image, blob, 1/255.0, cv::Size(), cv::Scalar(), true, false);
-
-        std::vector<int64_t> input_shape = {1, 3, 640, 640};
-        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
-        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-            memory_info,
-            blob.ptr<float>(),
-            blob.total(),
-            input_shape.data(),
-            input_shape.size()
-        );
-
-        const char* input_names[] = {"images"};
-        const char* output_names[] = {"output0"};
-        qDebug() << "Running inference...";
-        auto outputs = session.Run(Ort::RunOptions{nullptr},
-                                 input_names,
-                                 &input_tensor,
-                                 1,
-                                 output_names,
-                                 1);
-
-        qDebug() << "Postprocessing results...";
-        auto detections = postprocess(image, outputs, scale, pad_left, pad_top);
-
-        qDebug() << "Drawing detections...";
-        for (const auto& det : detections) {
-            qDebug() << QString::fromStdString(class_names[det.class_id]) ;
-            qDebug().nospace() 
-            << "Detected: " << QString::fromStdString(class_names[det.class_id]).leftJustified(15, ' ')
-            << " Conf: " << QString::number(static_cast<double>(det.conf), 'f', 2)
-            << " Box: [" 
-            << "x:" << det.box.x << ", "
-            << "y:" << det.box.y << ", "
-            << "w:" << det.box.width << ", "
-            << "h:" << det.box.height << "]";
-    
-            cv::rectangle(image, det.box, cv::Scalar(0, 255, 0), 2);
-            cv::putText(image,
-                       class_names[det.class_id] + ": " + std::to_string(det.conf).substr(0,4),
-                       det.box.tl() + cv::Point(0, -5),
-                       cv::FONT_HERSHEY_SIMPLEX,
-                       0.5,
-                       cv::Scalar(0, 255, 0),
-                       1);
-        }
-
-        cv::imwrite("result.jpg", image);
+        detect(image, session);
+        cv::imwrite("output.jpg", image);
         qDebug() << "Detection completed successfully!";
+
+        auto start = std::chrono::steady_clock::now();
+int frame_count = 0;
+float fps = 0.0;
+
+while (true) {
+    cv::Mat frame;
+    capture.read(frame);
+    if (frame.empty()) break;
+
+    detect(frame, session);
+
+    // Calculate FPS
+    frame_count++;
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<float> elapsed = end - start;
+    if (elapsed.count() >= 1.0f) {
+        fps = frame_count / elapsed.count();
+        frame_count = 0;
+        start = end;
+    }
+
+    // Display FPS
+    std::string fps_label = cv::format("FPS: %.2f", fps);
+    cv::putText(frame, fps_label, cv::Point(10, 30),
+        cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+
+    cv::imshow("YOLOv8 Object Detection", frame);
+
+    if (cv::waitKey(1) == 27) { // ESC to exit
+        break;
+    }
+}
+
+capture.release();
+cv::destroyAllWindows();
+
+
     }
     catch (const Ort::Exception& e) {
         qCritical() << "ONNX Runtime error:" << e.what();

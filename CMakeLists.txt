@@ -13,7 +13,7 @@ find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 # ONNX Runtime setup (adjust paths according to your installation)
-set(ONNXRUNTIME_ROOT "C:/Path/To/onnxruntime")
+set(ONNXRUNTIME_ROOT "C:/libs/onnxruntime-win-x64-gpu-1.17.1")
 set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_ROOT}/include")
 set(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_ROOT}/lib")
 
@@ -55,7 +55,10 @@ target_link_libraries(${PROJECT_NAME}
         PkgConfig::LIBUSB
         unofficial-sodium::sodium
         ${OpenCV_LIBS}
-        D:/forfun/drone/OpenIPC/code/fpv4win2/3rd/onnxruntime/lib/onnxruntime.lib
+        onnxruntime.lib
+        onnxruntime_providers_cuda.lib
+        onnxruntime_providers_shared.lib
+        onnxruntime_providers_tensorrt.lib
         )
 
 if (WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
