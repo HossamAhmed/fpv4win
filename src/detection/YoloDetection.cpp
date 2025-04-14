@@ -71,7 +71,12 @@ cv::Mat blob;
 cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, MODEL_SHAPE, cv::Scalar(), true, false);
 
 // Create input tensor
-std::array<int64_t, 4> input_shape = { 1, 3, MODEL_SHAPE.height, MODEL_SHAPE.width };
+std::array<int64_t, 4> input_shape = {
+    1,
+    3,
+    static_cast<int64_t>(MODEL_SHAPE.height),
+    static_cast<int64_t>(MODEL_SHAPE.width)
+};
 Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
 OrtAllocatorType::OrtArenaAllocator,
 OrtMemType::OrtMemTypeDefault);
@@ -182,15 +187,15 @@ void YoloDetection::startDetection()
         qDebug() << "Model loaded successfully" ;
 
         
-        cv::Mat image = cv::imread("input.jpg");
-        if (image.empty()) {
-            qDebug() << "Failed to load image!" ;
-            return ;
-        }
+        // cv::Mat image = cv::imread("input.jpg");
+        // if (image.empty()) {
+        //     qDebug() << "Failed to load image!" ;
+        //     return ;
+        // }
 
-        detect(image, session);
-        cv::imwrite("output.jpg", image);
-        qDebug() << "Detection completed successfully!";
+        // detect(image, session);
+        // cv::imwrite("output.jpg", image);
+        // qDebug() << "Detection completed successfully!";
 
         auto start = std::chrono::steady_clock::now();
 int frame_count = 0;
