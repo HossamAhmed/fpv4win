@@ -117,6 +117,7 @@
     "rope": "cpp",
     "slist": "cpp",
     "qdebug": "cpp",
-    "qopenglframebufferobject": "cpp"
+    "qopenglframebufferobject": "cpp",
+    "resumable": "cpp"
   }
 }

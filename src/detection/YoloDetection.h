@@ -14,6 +14,9 @@ private:
     const float SCORE_THRESHOLD = 0.5;
     const float NMS_THRESHOLD = 0.5;
     const cv::Size2f MODEL_SHAPE { 640, 640 };
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    int frame_count = 0;
+    float fps = 0.0;
     Ort::Env &get_ort_env();
     std::vector<std::string> load_class_list();
     std::vector<std::string> class_list;

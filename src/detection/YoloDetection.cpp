@@ -135,6 +135,18 @@ void YoloDetection::detect(cv::Mat &image) {
             image, std::to_string(int(confidences[idx] * 100)) + "% " + class_list[class_ids[idx]],
             cv::Point(boxes[idx].x, boxes[idx].y), 1, 3, cv::Scalar(0, 255, 255), 2);
     }
+
+    // Calculate FPS
+    frame_count++;
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<float> elapsed = end - start;
+    if (elapsed.count() >= 1.0f) {
+        fps = frame_count / elapsed.count();
+        frame_count = 0;
+        start = end;
+    }
+    std::string fps_label = cv::format("FPS: %.2f ----yes--- x:%d  y:%d", fps, image.cols, image.rows);
+    cv::putText(image, fps_label, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 }
 
 YoloDetection::YoloDetection(QObject *parent)
