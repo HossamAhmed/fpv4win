@@ -1,12 +1,14 @@
 ﻿
 #include "QQuickRealTimePlayer.h"
 #include "JpegEncoder.h"
+#include "detection/YoloDetection.h"
 #include <QDir>
 #include <QOpenGLFramebufferObject>
 #include <QQuickWindow>
 #include <QStandardPaths>
 #include <SDL2/SDL.h>
 #include <future>
+
 #include <sstream>
 // GIF默认帧率
 #define DEFAULT_GIF_FRAMERATE 10
@@ -15,6 +17,7 @@
 class TItemRender : public QQuickFramebufferObject::Renderer {
 public:
     TItemRender();
+    YoloDetection detection;
 
     void render() override;
     QOpenGLFramebufferObject *createFramebufferObject(const QSize &size) override;
@@ -60,6 +63,16 @@ void TItemRender::synchronize(QQuickFramebufferObject *item) {
         bool got = false;
         shared_ptr<AVFrame> frame = pItem->getFrame(got);
         if (got && frame->linesize[0]) {
+
+            // Convert AVFrame to cv::Mat
+            AVFrame *raw_frame = frame.get();
+            cv::Mat cv_frame = detection.AVFrameToMat(raw_frame);
+
+            // Run detection (modifies cv_frame)
+            detection.detect(cv_frame);
+
+            // Convert modified cv::Mat back to original AVFrame
+            detection.MatToAVFrame(cv_frame, raw_frame);
             m_render.updateTextureData(frame);
         }
     }

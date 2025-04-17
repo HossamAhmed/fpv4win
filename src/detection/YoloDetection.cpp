@@ -57,7 +57,7 @@ Ort::Session YoloDetection::create_onnx_session(const wchar_t *model_path, bool 
 }
 
 // Main detection function
-void YoloDetection::detect(cv::Mat &image, Ort::Session &session) {
+void YoloDetection::detect(cv::Mat &image) {
     // Preprocess image
     cv::Mat blob;
     cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, MODEL_SHAPE, cv::Scalar(), true, false);
@@ -178,7 +178,7 @@ void YoloDetection::startDetection() {
             if (frame.empty())
                 break;
 
-            detect(frame, session);
+            detect(frame);
 
             // Calculate FPS
             frame_count++;
@@ -209,4 +209,70 @@ void YoloDetection::startDetection() {
     } catch (const std::exception &e) {
         qCritical() << "Error:" << e.what();
     }
+}
+
+// 1. Conversion from AVFrame to cv::Mat (as before)
+cv::Mat YoloDetection::AVFrameToMat(AVFrame *frame) {
+    SwsContext *sws_ctx = sws_getContext(
+        frame->width, frame->height, static_cast<AVPixelFormat>(frame->format), frame->width, frame->height,
+        AV_PIX_FMT_BGR24, // Convert to BGR for OpenCV
+        SWS_BILINEAR, nullptr, nullptr, nullptr);
+
+    AVFrame *converted_frame = av_frame_alloc();
+    converted_frame->format = AV_PIX_FMT_BGR24;
+    converted_frame->width = frame->width;
+    converted_frame->height = frame->height;
+    av_frame_get_buffer(converted_frame, 0);
+
+    sws_scale(
+        sws_ctx, frame->data, frame->linesize, 0, frame->height, converted_frame->data, converted_frame->linesize);
+
+    cv::Mat mat(
+        converted_frame->height, converted_frame->width, CV_8UC3, converted_frame->data[0],
+        static_cast<size_t>(converted_frame->linesize[0]));
+    cv::Mat mat_clone = mat.clone(); // Ensure ownership
+
+    sws_freeContext(sws_ctx);
+    av_frame_free(&converted_frame);
+
+    return mat_clone;
+}
+
+// 2. Conversion from modified cv::Mat back to AVFrame
+void YoloDetection::MatToAVFrame(const cv::Mat &mat, AVFrame *target_frame) {
+    // Ensure the target frame is writable
+    av_frame_make_writable(target_frame);
+
+    // Create a temporary AVFrame to hold BGR24 data
+    AVFrame *temp_frame = av_frame_alloc();
+    temp_frame->format = AV_PIX_FMT_BGR24;
+    temp_frame->width = mat.cols;
+    temp_frame->height = mat.rows;
+    av_frame_get_buffer(temp_frame, 0);
+
+    // Copy data from cv::Mat to temp_frame
+    if (temp_frame->linesize[0] == mat.step) {
+        memcpy(temp_frame->data[0], mat.data, mat.rows * mat.step);
+    } else {
+        // Handle row stride mismatch
+        for (int y = 0; y < mat.rows; y++) {
+            memcpy(
+                temp_frame->data[0] + y * temp_frame->linesize[0], mat.ptr(y),
+                mat.cols * 3 // 3 channels for BGR
+            );
+        }
+    }
+
+    // Convert BGR24 back to the target frame's original format
+    SwsContext *sws_ctx = sws_getContext(
+        temp_frame->width, temp_frame->height, AV_PIX_FMT_BGR24, target_frame->width, target_frame->height,
+        static_cast<AVPixelFormat>(target_frame->format), SWS_BILINEAR, nullptr, nullptr, nullptr);
+
+    sws_scale(
+        sws_ctx, temp_frame->data, temp_frame->linesize, 0, temp_frame->height, target_frame->data,
+        target_frame->linesize);
+
+    // Cleanup
+    sws_freeContext(sws_ctx);
+    av_frame_free(&temp_frame);
 }

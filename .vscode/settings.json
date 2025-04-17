@@ -116,6 +116,7 @@
     "string_view": "cpp",
     "rope": "cpp",
     "slist": "cpp",
-    "qdebug": "cpp"
+    "qdebug": "cpp",
+    "qopenglframebufferobject": "cpp"
   }
 }

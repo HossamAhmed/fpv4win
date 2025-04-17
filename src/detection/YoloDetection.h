@@ -3,6 +3,7 @@
 #include <onnxruntime_cxx_api.h>
 #include <opencv2/opencv.hpp>
 
+#include "player/ffmpegInclude.h"
 class YoloDetection : public QObject {
     Q_OBJECT
 private:
@@ -21,7 +22,9 @@ private:
 
 public:
     explicit YoloDetection(QObject *parent = nullptr);
-    void detect(cv::Mat &image, Ort::Session &session);
+    cv::Mat AVFrameToMat(AVFrame *frame);
+    void MatToAVFrame(const cv::Mat &mat, AVFrame *target_frame);
+    void detect(cv::Mat &image);
 
 signals:
 public slots:
