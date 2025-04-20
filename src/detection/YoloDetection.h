@@ -28,6 +28,7 @@ public:
     cv::Mat AVFrameToMat(AVFrame *frame);
     void MatToAVFrame(const cv::Mat &mat, AVFrame *target_frame);
     void detect(cv::Mat &image);
+    void init();
 
 signals:
 public slots:

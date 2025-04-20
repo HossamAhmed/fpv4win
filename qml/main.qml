@@ -12,8 +12,8 @@ ApplicationWindow {
     id:window
     title: qsTr("")
 
-YoloDetection{
-    id:yoloDetection
+DetectionInterface{
+    id:detectionInterface
 }
 
     QQuickRealTimePlayer {
@@ -409,8 +409,8 @@ YoloDetection{
                 }
                 Button{
                     id:test
-                    text:"Start YoloDetection"
-                    onClicked: yoloDetection.startDetection()
+                    text:"Start Detection"
+                    onClicked: detectionInterface.startDetection()
                 }
             }
             Rectangle {

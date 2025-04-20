@@ -30,6 +30,7 @@ private:
 
 TItemRender::TItemRender() {
     m_render.init();
+    // detection.init();
 }
 
 void TItemRender::render() {

@@ -11,7 +11,6 @@
 // Constants
 
 Ort::Env &YoloDetection::get_ort_env() {
-    qDebug() << "Singleton for ONNX Runtime environment...";
     try {
         static Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "YOLOv8");
         return env;
@@ -42,6 +41,9 @@ std::vector<std::string> YoloDetection::load_class_list() {
 
 // Create ONNX Runtime session with proper CUDA support
 Ort::Session YoloDetection::create_onnx_session(const wchar_t *model_path, bool use_cuda) {
+
+    qDebug() << "Creating ONNX Runtime session...";
+
     Ort::SessionOptions session_options;
     session_options.SetIntraOpNumThreads(1);
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
@@ -58,9 +60,22 @@ Ort::Session YoloDetection::create_onnx_session(const wchar_t *model_path, bool 
 
 // Main detection function
 void YoloDetection::detect(cv::Mat &image) {
+
     // Preprocess image
+    cv::Mat resized;
+    float scale = std::min(MODEL_SHAPE.width / (float)image.cols, MODEL_SHAPE.height / (float)image.rows);
+    int new_width = static_cast<int>(image.cols * scale);
+    int new_height = static_cast<int>(image.rows * scale);
+
+    cv::resize(image, resized, cv::Size(new_width, new_height));
+    int pad_w = MODEL_SHAPE.width - new_width;
+    int pad_h = MODEL_SHAPE.height - new_height;
+    cv::copyMakeBorder(
+        resized, resized, pad_h / 2, pad_h - pad_h / 2, pad_w / 2, pad_w - pad_w / 2, cv::BORDER_CONSTANT,
+        cv::Scalar(114, 114, 114));
+
     cv::Mat blob;
-    cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, MODEL_SHAPE, cv::Scalar(), true, false);
+    cv::dnn::blobFromImage(resized, blob, 1.0 / 255.0, MODEL_SHAPE, cv::Scalar(), true, false);
 
     // Create input tensor
     std::array<int64_t, 4> input_shape
@@ -114,15 +129,35 @@ void YoloDetection::detect(cv::Mat &image) {
             float w = data[2];
             float h = data[3];
 
-            int left = static_cast<int>(x * image.cols - w * image.cols / 2);
-            int top = static_cast<int>(y * image.rows - h * image.rows / 2);
-            int width = static_cast<int>(w * image.cols);
-            int height = static_cast<int>(h * image.rows);
+            int left = static_cast<int>(x * MODEL_SHAPE.width - w * MODEL_SHAPE.width / 2);
+            int top = static_cast<int>(y * MODEL_SHAPE.height - h * MODEL_SHAPE.height / 2);
+            int width = static_cast<int>(w * MODEL_SHAPE.width);
+            int height = static_cast<int>(h * MODEL_SHAPE.height);
 
             boxes.push_back(cv::Rect(left, top, width, height));
         }
     }
+    // Adjust bounding boxes for letterboxing
+    float x_scale = new_width / (float)MODEL_SHAPE.width;
+    float y_scale = new_height / (float)MODEL_SHAPE.height;
+    int x_pad = pad_w / 2;
+    int y_pad = pad_h / 2;
 
+    for (auto &box : boxes) {
+        // Remove padding
+        box.x -= x_pad;
+        box.y -= y_pad;
+
+        // Scale to original dimensions
+        box.x = static_cast<int>(box.x / scale);
+        box.y = static_cast<int>(box.y / scale);
+        box.width = static_cast<int>(box.width / scale);
+        box.height = static_cast<int>(box.height / scale);
+
+        // Clip boxes to image boundaries
+        box.x = std::max(0, std::min(box.x, image.cols - box.width));
+        box.y = std::max(0, std::min(box.y, image.rows - box.height));
+    }
     // Apply NMS
     std::vector<int> nms_result;
     cv::dnn::NMSBoxes(boxes, confidences, SCORE_THRESHOLD, NMS_THRESHOLD, nms_result);
@@ -137,29 +172,33 @@ void YoloDetection::detect(cv::Mat &image) {
     }
 
     // Calculate FPS
-    frame_count++;
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<float> elapsed = end - start;
-    if (elapsed.count() >= 1.0f) {
-        fps = frame_count / elapsed.count();
-        frame_count = 0;
-        start = end;
-    }
-    std::string fps_label = cv::format("FPS: %.2f ----yes--- x:%d  y:%d", fps, image.cols, image.rows);
-    cv::putText(image, fps_label, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+    // frame_count++;
+    // auto end = std::chrono::steady_clock::now();
+    // std::chrono::duration<float> elapsed = end - start;
+    // if (elapsed.count() >= 1.0f) {
+    //     fps = frame_count / elapsed.count();
+    //     frame_count = 0;
+    //     start = end;
+    // }
+    // std::string fps_label
+    //     = cv::format("FPS: %.2f", fps);
+    // cv::putText(image, fps_label, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 }
 
 YoloDetection::YoloDetection(QObject *parent)
     : QObject { parent } {
 
     qDebug() << "Model loaded successfully";
-}
+    qDebug() << "load_class_list";
 
+    class_list = load_class_list();
+}
+void YoloDetection::init() {
+    qDebug() << "Initializing YOLO detection...";
+}
 void YoloDetection::startDetection() {
     try {
         qDebug() << "Initializing YOLO detection...";
-
-        qDebug() << "ONNX Runtime initialized";
 
         qDebug() << "load_class_list";
 
@@ -170,15 +209,19 @@ void YoloDetection::startDetection() {
             throw std::runtime_error("Failed to open video capture");
         }
 
-        // cv::Mat image = cv::imread("input.jpg");
-        // if (image.empty()) {
-        //     qDebug() << "Failed to load image!" ;
-        //     return ;
-        // }
+        cv::Mat image = cv::imread("static_input_2.jpg");
+        if (image.empty()) {
+            qDebug() << "Failed to load image!";
+            return;
+        }
 
-        // detect(image, session);
-        // cv::imwrite("output.jpg", image);
-        // qDebug() << "Detection completed successfully!";
+        detect(image);
+        cv::imwrite("output.jpg", image);
+        cv::imshow("output", image);
+
+        cv::imwrite("output.jpg", image);
+
+        qDebug() << "Detection completed successfully!";
 
         auto start = std::chrono::steady_clock::now();
         int frame_count = 0;
@@ -190,7 +233,7 @@ void YoloDetection::startDetection() {
             if (frame.empty())
                 break;
 
-            detect(frame);
+            // detect(frame);
 
             // Calculate FPS
             frame_count++;
